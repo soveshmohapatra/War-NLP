@@ -90,11 +90,24 @@ def wilson_ci(k, n, z=1.959963984540054):
     half= z*((ph*(1-ph) + z**2/(4*n))/n)**0.5 / denom
     return ctr-half, ctr+half
 
+# (These will be set later from sidebar; function reads them at call time)
 def x_year_axis(title: str = "Year"):
-    """Numeric x-axis with clean integer labels (2010, 2011, …)."""
+    """Quantitative x-axis with integer-only ticks and fixed domain to avoid duplicate labels."""
     if not _HAS_ALTAIR:
         return None
-    return alt.X("pub_year:Q", title=title, axis=alt.Axis(format=".0f"))
+    try:
+        yr0 = int(min(min_year, max_year))
+        yr1 = int(max(min_year, max_year))
+    except Exception:
+        # Sensible fallbacks if not set yet
+        yr0, yr1 = 2000, 2025
+    vals = list(range(yr0, yr1 + 1))
+    return alt.X(
+        "pub_year:Q",
+        title=title,
+        axis=alt.Axis(values=vals, format="d", labelOverlap=True, tickMinStep=1),
+        scale=alt.Scale(domain=[yr0, yr1], nice=False),
+    )
 
 def line_with_band(
     df: pd.DataFrame,
@@ -111,7 +124,7 @@ def line_with_band(
 
     base = alt.Chart(df)
 
-    # Put axis on line layer
+    # Put axis & domain on the line layer
     line = base.mark_line().encode(
         x=x_year_axis("Year"),
         y=alt.Y(f"{y}:Q", title=title),
@@ -121,7 +134,7 @@ def line_with_band(
     band = None
     if lo and hi and lo in df.columns and hi in df.columns:
         band = base.mark_area(opacity=0.18).encode(
-            # IMPORTANT: no axis here; the axis is on the line
+            # No axis here; share the line's scale/domain implicitly
             x=alt.X("pub_year:Q"),
             y=alt.Y(f"{lo}:Q"),
             y2=f"{hi}:Q",
@@ -413,7 +426,7 @@ with T_DT:
 
                 color_dt = alt.Color("doc_type:N", title="Doc type", scale=alt.Scale(range=DISTINCT_PALETTE))
 
-                # Line first (carries the axis)
+                # Line first (carries the axis & fixed integer ticks)
                 line = base.mark_line().encode(
                     x=x_year_axis("Year"),
                     y=alt.Y("prevalence:Q", title="Prevalence"),
