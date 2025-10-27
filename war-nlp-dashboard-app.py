@@ -292,6 +292,32 @@ def load_df_for(key: str, corpus: str) -> Optional[pd.DataFrame]:
 def load_df_all(key: str) -> Dict[str, Optional[pd.DataFrame]]:
     return {c: load_df_for(key, c) for c in active_corpora}
 
+def show_kpis_for(corpus: str, df_raw: Optional[pd.DataFrame], df_std: Optional[pd.DataFrame]):
+    st.markdown(f"**{corpus}**")
+    m1, m2, m3, m4 = st.columns(4)
+    try:
+        if df_raw is not None and {"pub_year","prevalence"}.issubset(df_raw.columns):
+            y_max = int(pd.to_numeric(df_raw["pub_year"]).max())
+            last = float(df_raw.loc[df_raw["pub_year"] == y_max, "prevalence"].mean())
+            prev = float(df_raw.loc[df_raw["pub_year"] == y_max-1, "prevalence"].mean()) if (df_raw["pub_year"] == y_max-1).any() else float("nan")
+            delta = None if pd.isna(prev) else last - prev
+            m1.metric("Last year prevalence", f"{last:.2%}", None if delta is None else f"{delta:+.2%}")
+        if df_raw is not None and "n_docs" in df_raw.columns:
+            total_docs = int(pd.to_numeric(df_raw["n_docs"]).sum())
+            m2.metric("Total docs (raw series)", f"{total_docs:,}")
+        if df_std is not None and "L_star" in df_std.columns and not df_std["L_star"].isna().all():
+            Ls = int(pd.to_numeric(df_std["L_star"]).dropna().iloc[0])
+            m3.metric("Standardized at L*", f"{Ls} words")
+        years = []
+        for d in [df_raw, df_std]:
+            if d is not None and "pub_year" in d.columns:
+                years.append(int(pd.to_numeric(d["pub_year"]).min()))
+                years.append(int(pd.to_numeric(d["pub_year"]).max()))
+        if years:
+            m4.metric("Years covered", f"{min(years)}–{max(years)}")
+    except Exception:
+        pass
+
 # Header / caption
 if is_compare:
     st.title("Is Science at War?")
@@ -314,9 +340,8 @@ with T_OVERVIEW:
             "**What this shows.** The share of papers each year that contain any term "
             "from the core ‘war’ lexeme list.\n\n"
             "**Two versions.** *Raw prevalence* is the observed share in your data. "
-            "*Length-standardized prevalence* estimates the share if every document had L* words, "
-            "so trends aren’t driven by changing abstract lengths.\n\n"
-            "**Compare.** Choose *Both (compare)* above to overlay PubMed and OpenAlex."
+            "*Length-standardized prevalence* estimates the share if every document had L* words.\n\n"
+            "**Compare.** Choose *Both (compare)* to see PubMed vs OpenAlex overlays and KPIs per corpus."
         )
 
     view = st.radio("Slice", ["Any (union)", "Title", "Abstract"], horizontal=True, key="ov_slice")
@@ -328,26 +353,7 @@ with T_OVERVIEW:
         df_std = load_df_for(key_std, active_corpora[0])
         df_raw = load_df_for(key_raw, active_corpora[0])
 
-        m1, m2, m3, m4 = st.columns(4)
-        try:
-            if df_raw is not None and {"pub_year","prevalence"}.issubset(df_raw.columns):
-                y_max = int(pd.to_numeric(df_raw["pub_year"]).max())
-                last = float(df_raw.loc[df_raw["pub_year"] == y_max, "prevalence"].mean())
-                prev = float(df_raw.loc[df_raw["pub_year"] == y_max-1, "prevalence"].mean()) if (df_raw["pub_year"] == y_max-1).any() else float("nan")
-                delta = None if pd.isna(prev) else last - prev
-                m1.metric("Last year prevalence", f"{last:.2%}", None if delta is None else f"{delta:+.2%}")
-            if df_raw is not None and "n_docs" in df_raw.columns:
-                total_docs = int(pd.to_numeric(df_raw["n_docs"]).sum())
-                m2.metric("Total docs (raw series)", f"{total_docs:,}")
-            if df_std is not None and "L_star" in df_std.columns and not df_std["L_star"].isna().all():
-                Ls = int(pd.to_numeric(df_std["L_star"]).dropna().iloc[0])
-                m3.metric("Standardized at L*", f"{Ls} words")
-            if df_raw is not None and "pub_year" in df_raw.columns:
-                y_min = int(pd.to_numeric(df_raw["pub_year"]).min())
-                y_max = int(pd.to_numeric(df_raw["pub_year"]).max())
-                m4.metric("Years covered", f"{y_min}–{y_max}")
-        except Exception:
-            pass
+        show_kpis_for(active_corpora[0], df_raw, df_std)
 
         cols = st.columns(2)
         with cols[0]:
@@ -366,6 +372,13 @@ with T_OVERVIEW:
             else:
                 st.info("Standardized prevalence CSV not found or missing columns.")
     else:
+        # KPIs per corpus
+        for corpus in ["PubMed", "OpenAlex"]:
+            df_std_c = load_df_for(key_std, corpus)
+            df_raw_c = load_df_for(key_raw, corpus)
+            show_kpis_for(corpus, df_raw_c, df_std_c)
+
+        # Side-by-side charts with overlays (dashed by corpus)
         dfs_raw = [d for d in load_df_all(key_raw).values() if d is not None]
         dfs_std = [d for d in load_df_all(key_std).values() if d is not None]
 
@@ -665,7 +678,7 @@ with T_CTY:
             ch = alt.Chart(dfp).mark_line().encode(
                 x=x_year_axis("Year"),
                 y=alt.Y("prevalence:Q", title="Prevalence"),
-                color=alt.Color("country:N", title="Country", scale=alt.Scale(range[DISTINCT_PALETTE])),
+                color=alt.Color("country:N", title="Country", scale=alt.Scale(range=DISTINCT_PALETTE)),
                 strokeDash=alt.StrokeDash("corpus:N", title="Corpus"),
                 tooltip=["pub_year","country","corpus","prevalence"],
             ).properties(height=360)
@@ -801,7 +814,7 @@ with T_MS:
         else:
             df_all = pd.concat(dfs_dt, ignore_index=True)
             _clean = _drop_unknown(df_all, ["doc_type"])
-            df_all = _clean if _clean is not None else df_all  # ← fixed (no 'or' with DF)
+            df_all = _clean if _clean is not None else df_all
             if {"pub_year", "doc_type", "share_metaphor"}.issubset(df_all.columns):
                 st.markdown("**By doc type**")
                 if "n_hits" in df_all.columns:
@@ -837,7 +850,7 @@ with T_MS:
     else:
         df_all = pd.concat(dfs_cty, ignore_index=True)
         _clean = _drop_unknown(df_all, ["country"])
-        df_all = _clean if _clean is not None else df_all  # ← fixed (no 'or' with DF)
+        df_all = _clean if _clean is not None else df_all
         if _HAS_ALTAIR and {"country","share_metaphor"}.issubset(df_all.columns):
             if "n_hits" in df_all.columns:
                 top_cty = (df_all.groupby("country")["n_hits"].sum()
