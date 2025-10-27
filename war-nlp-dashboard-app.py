@@ -236,10 +236,10 @@ openalex_dir = DEFAULT_OPENALEX_DIR
 base_dir = pubmed_dir if source == "PubMed" else openalex_dir
 
 available = list_csvs(base_dir)
-if not available:
-    st.sidebar.info(f"No CSVs detected in {base_dir} yet.")
-else:
-    st.sidebar.caption(f"Found {len(available)} CSV files in {base_dir}")
+# if not available:
+#     st.sidebar.info(f"No CSVs detected in {base_dir} yet.")
+# else:
+#     st.sidebar.caption(f"Found {len(available)} CSV files in {base_dir}")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Map of expected files → purposes (we try multiple fallbacks where helpful)
