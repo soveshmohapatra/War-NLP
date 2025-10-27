@@ -3,7 +3,7 @@
 # WAR-NLP: “Is Science at War?” — Presentation Dashboard (Streamlit)
 # Author: Sovesh
 #
-# Drop your CSVs into two folders (or point to wherever they live):
+# Drop your CSVs into two folders:
 #   results-pubmed/    → PubMed outputs
 #   results-openalex/  → OpenAlex outputs
 # Then run:
@@ -172,7 +172,7 @@ def _drop_unknown(df: Optional[pd.DataFrame], cols: list[str]) -> Optional[pd.Da
     return df.loc[mask].copy()
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Sidebar — choose source + directories + quick filters
+# Sidebar — choose source + quick filters
 # ──────────────────────────────────────────────────────────────────────────────
 DEFAULT_PUBMED_DIR = Path("results-pubmed")
 DEFAULT_OPENALEX_DIR = Path("results-openalex")
@@ -180,9 +180,9 @@ DEFAULT_OPENALEX_DIR = Path("results-openalex")
 st.sidebar.header("Data sources")
 source = st.sidebar.radio("Corpus", ["PubMed", "OpenAlex"], index=0, horizontal=True, key="src")
 
-st.sidebar.header("Appearance")
-accent_name = st.sidebar.selectbox("Accent color", ["Indigo","Teal","Crimson","Amber","Slate"], index=0, key="accent")
-talk_mode = st.sidebar.checkbox("Talk mode (bigger fonts)", value=False, key="talk")
+# Year filter (applied to most views) — defaults locked to 2010 / 2025
+min_year = int(st.sidebar.number_input("Min year", value=2010, step=1, key="ymin"))
+max_year = int(st.sidebar.number_input("Max year", value=2025, step=1, key="ymax"))
 
 # Help / explainer toggle
 st.sidebar.header("Help")
@@ -192,14 +192,8 @@ SHOW_EXPLAINERS = st.sidebar.checkbox(
     help="Adds a short explainer at the top of every tab."
 )
 
-ACCENTS = {
-    "indigo": "#6366F1",
-    "teal": "#14B8A6",
-    "crimson": "#EF4444",
-    "amber": "#F59E0B",
-    "slate": "#64748B",
-}
-ACCENT = ACCENTS[accent_name.lower()]
+# Accent fixed to Indigo
+ACCENT = "#6366F1"
 
 # High-contrast categorical palette for distinct series (20 colors)
 DISTINCT_PALETTE = [
@@ -207,14 +201,13 @@ DISTINCT_PALETTE = [
     "#393b79","#637939","#8c6d31","#843c39","#7b4173","#3182bd","#e6550d","#31a354","#756bb1","#636363",
 ]
 
-# Inject accent + talk-mode CSS
+# Inject accent CSS
 st.markdown(
     f"""
     <style>
       :root {{ --accent: {ACCENT}; }}
       h1, h2 {{ color: var(--accent) !important; }}
       .stTabs [data-baseweb="tab"] p {{ font-weight:600; }}
-      {'html, body, [class*="css"] { font-size: 18px; } .small{font-size:1rem}' if talk_mode else ''}
     </style>
     """,
     unsafe_allow_html=True,
@@ -237,20 +230,16 @@ if _HAS_ALTAIR:
     except Exception:
         pass
 
-pubmed_dir = Path(st.sidebar.text_input("PubMed directory", str(DEFAULT_PUBMED_DIR), key="pm_dir"))
-openalex_dir = Path(st.sidebar.text_input("OpenAlex directory", str(DEFAULT_OPENALEX_DIR), key="oa_dir"))
-
+# Fixed directories (no sidebar inputs)
+pubmed_dir = DEFAULT_PUBMED_DIR
+openalex_dir = DEFAULT_OPENALEX_DIR
 base_dir = pubmed_dir if source == "PubMed" else openalex_dir
 
 available = list_csvs(base_dir)
 if not available:
-    st.sidebar.info("No CSVs detected in the selected directory yet.")
+    st.sidebar.info(f"No CSVs detected in {base_dir} yet.")
 else:
     st.sidebar.caption(f"Found {len(available)} CSV files in {base_dir}")
-
-# Year filter (applied to most views)
-min_year = int(st.sidebar.number_input("Min year", value=2010, step=1, key="ymin"))
-max_year = int(st.sidebar.number_input("Max year", value=2025, step=1, key="ymax"))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Map of expected files → purposes (we try multiple fallbacks where helpful)
@@ -440,18 +429,20 @@ with T_DT:
         if df_sizes is not None and "doc_type" in df_sizes.columns:
             df_sizes = df_sizes.sort_values("n_docs", ascending=False)
             topk = st.slider("Show top K by total N", 3, 12, 6, key="dt_topk")
+            # Dynamically rebuild the multiselect when topK changes (key trick)
+            default_list = df_sizes["doc_type"].head(topk).tolist()
             sel = st.multiselect(
                 "Doc types",
                 df_sizes["doc_type"].head(20).tolist(),
-                default=df_sizes["doc_type"].head(topk).tolist(),
-                key="dt_sel",
+                default=default_list,
+                key=f"dt_sel_{which}_{topk}",
             )
         else:
             sel = []
 
     with right:
         if df_year is not None and sel:
-            df_plot = df_year[df_year["doc_type_major"].isin(sel)].copy()
+            df_plot = df_year[df_year.get("doc_type_major", df_year.get("doc_type")).isin(sel)].copy()
             if "doc_type" not in df_plot.columns and "doc_type_major" in df_plot.columns:
                 df_plot = df_plot.rename(columns={"doc_type_major": "doc_type"})
 
