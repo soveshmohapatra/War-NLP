@@ -292,7 +292,7 @@ def load_df_for(key: str, corpus: str) -> Optional[pd.DataFrame]:
 def load_df_all(key: str) -> Dict[str, Optional[pd.DataFrame]]:
     return {c: load_df_for(key, c) for c in active_corpora}
 
-# Caption (one or both dirs)
+# Header / caption
 if is_compare:
     st.title("Is Science at War?")
     st.caption(f"Corpora: **PubMed** (`{CORPUS_DIRS['PubMed']}`) · **OpenAlex** (`{CORPUS_DIRS['OpenAlex']}`)")
@@ -366,7 +366,6 @@ with T_OVERVIEW:
             else:
                 st.info("Standardized prevalence CSV not found or missing columns.")
     else:
-        # Compare: overlay lines for both corpora (color=corpus, dashed by corpus)
         dfs_raw = [d for d in load_df_all(key_raw).values() if d is not None]
         dfs_std = [d for d in load_df_all(key_std).values() if d is not None]
 
@@ -488,14 +487,12 @@ with T_DT:
     with left:
         which = st.radio("Slice", ["Title", "Abstract"], horizontal=True, key="dt_slice")
 
-        # Load sizes (for top-K) across active corpora
         sizes_key = "dt_sizes_title" if which == "Title" else "dt_sizes_abs"
         sizes_dfs = [d for d in load_df_all(sizes_key).values() if d is not None]
         if sizes_dfs:
             df_sizes_all = pd.concat(sizes_dfs, ignore_index=True)
             if "doc_type" not in df_sizes_all.columns and "doc_type_major" in df_sizes_all.columns:
                 df_sizes_all = df_sizes_all.rename(columns={"doc_type_major": "doc_type"})
-            # combined Top-K across corpora
             if "n_docs" in df_sizes_all.columns:
                 top_counts = (df_sizes_all.groupby("doc_type")["n_docs"].sum()
                               .sort_values(ascending=False))
@@ -534,7 +531,6 @@ with T_DT:
                         y=alt.Y("prevalence:Q", title="Prevalence"),
                         color=color_dt,
                     )
-                    # optional bands if present
                     overlay = line
                     if {"prev_lo95","prev_hi95"}.issubset(df_plot.columns):
                         band = base.mark_area(opacity=0.18).encode(
@@ -607,7 +603,6 @@ with T_CTY:
     key_or = {"Any (union)": "cty_or_any", "Title": "cty_or_title", "Abstract": "cty_or_abs"}[c_slice]
     key_sizes = "cty_sizes"
 
-    # Build sizes across corpora for top choices
     sizes_dfs = [d for d in load_df_all(key_sizes).values() if d is not None]
     if sizes_dfs:
         df_sizes_all = pd.concat(sizes_dfs, ignore_index=True)
@@ -670,7 +665,7 @@ with T_CTY:
             ch = alt.Chart(dfp).mark_line().encode(
                 x=x_year_axis("Year"),
                 y=alt.Y("prevalence:Q", title="Prevalence"),
-                color=alt.Color("country:N", title="Country", scale=alt.Scale(range=DISTINCT_PALETTE)),
+                color=alt.Color("country:N", title="Country", scale=alt.Scale(range[DISTINCT_PALETTE])),
                 strokeDash=alt.StrokeDash("corpus:N", title="Corpus"),
                 tooltip=["pub_year","country","corpus","prevalence"],
             ).properties(height=360)
@@ -698,7 +693,6 @@ with T_LEX:
             "Trends for individual lexemes. In compare mode, lines are colored by lexeme and **dashed by corpus**."
         )
 
-    # Load per-corpus lexeme CSVs and normalize slice
     dfs_lex = [d for d in load_df_all("lexemes").values() if d is not None]
     if not dfs_lex:
         st.info("Lexeme-level CSV not found.")
@@ -713,7 +707,6 @@ with T_LEX:
                 return "abstract"
             return s
 
-        # Combine and choose slice
         df_lex_all = pd.concat(dfs_lex, ignore_index=True)
         if "target" in df_lex_all.columns:
             df_lex_all["_slice"] = df_lex_all["target"].map(norm_target)
@@ -727,7 +720,6 @@ with T_LEX:
                 chosen = st.selectbox("Slice", opts, key="lex_slice_other")
             df_lex_all = df_lex_all[df_lex_all["_slice"] == chosen].copy()
 
-        # Collapse duplicates
         if df_lex_all.duplicated(["pub_year", "lexeme", "corpus"]).any():
             df_lex_all = (
                 df_lex_all.groupby(["pub_year", "lexeme", "corpus"], as_index=False)["prevalence"]
@@ -735,7 +727,6 @@ with T_LEX:
                 .sort_values(["lexeme", "pub_year", "corpus"])
             )
 
-        # Choices default by combined freq
         lex_list = sorted(df_lex_all.get("lexeme", pd.Series(dtype=str)).dropna().unique().tolist())
         default_lex = lex_list[:6]
         sel_lex = st.multiselect("Lexemes", lex_list, default=default_lex, key="lex_sel")
@@ -748,7 +739,7 @@ with T_LEX:
                     y=alt.Y("prevalence:Q", title="Prevalence"),
                     color=alt.Color("lexeme:N", scale=alt.Scale(range=DISTINCT_PALETTE)),
                     strokeDash=alt.StrokeDash("corpus:N", title="Corpus"),
-                    tooltip=["pub_year", "lexeme", "corpus", "prevalence"],
+                    tooltip=["pub_year","lexeme","corpus","prevalence"],
                 ).properties(height=360)
                 st.altair_chart(ch, use_container_width=True)
             else:
@@ -809,10 +800,10 @@ with T_MS:
             st.info("metaphor_share_by_doctype_union.csv not found.")
         else:
             df_all = pd.concat(dfs_dt, ignore_index=True)
-            df_all = _drop_unknown(df_all, ["doc_type"]) or df_all
+            _clean = _drop_unknown(df_all, ["doc_type"])
+            df_all = _clean if _clean is not None else df_all  # ← fixed (no 'or' with DF)
             if {"pub_year", "doc_type", "share_metaphor"}.issubset(df_all.columns):
                 st.markdown("**By doc type**")
-                # Top by combined n_hits
                 if "n_hits" in df_all.columns:
                     top_dt = (df_all.groupby("doc_type")["n_hits"].sum()
                               .sort_values(ascending=False).head(6).index.tolist())
@@ -845,7 +836,8 @@ with T_MS:
         st.info("metaphor_share_by_country_union.csv not found.")
     else:
         df_all = pd.concat(dfs_cty, ignore_index=True)
-        df_all = _drop_unknown(df_all, ["country"]) or df_all
+        _clean = _drop_unknown(df_all, ["country"])
+        df_all = _clean if _clean is not None else df_all  # ← fixed (no 'or' with DF)
         if _HAS_ALTAIR and {"country","share_metaphor"}.issubset(df_all.columns):
             if "n_hits" in df_all.columns:
                 top_cty = (df_all.groupby("country")["n_hits"].sum()
