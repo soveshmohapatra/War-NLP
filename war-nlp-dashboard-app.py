@@ -62,7 +62,6 @@ def load_csv_optional(path: Path) -> Optional[pd.DataFrame]:
     try:
         if path and path.exists():
             df = pd.read_csv(path)
-            # Normalize common column names
             if "year" in df.columns and "pub_year" not in df.columns:
                 df = df.rename(columns={"year": "pub_year"})
             return df
@@ -90,17 +89,14 @@ def wilson_ci(k, n, z=1.959963984540054):
     half= z*((ph*(1-ph) + z**2/(4*n))/n)**0.5 / denom
     return ctr-half, ctr+half
 
-# (These will be set later from sidebar; function reads them at call time)
 def x_year_axis(title: str = "Year"):
-    """Quantitative x-axis with integer-only ticks and fixed domain to avoid duplicate labels."""
     if not _HAS_ALTAIR:
         return None
     try:
         yr0 = int(min(min_year, max_year))
         yr1 = int(max(min_year, max_year))
     except Exception:
-        # Sensible fallbacks if not set yet
-        yr0, yr1 = 2000, 2025
+        yr0, yr1 = 2010, 2025
     vals = list(range(yr0, yr1 + 1))
     return alt.X(
         "pub_year:Q",
@@ -117,14 +113,11 @@ def line_with_band(
     title: str,
     color: Optional[str] = None,
 ):
-    """Single-series line with optional CI band. Draw the line FIRST so the axis shows."""
     if not _HAS_ALTAIR:
         st.line_chart(df.set_index("pub_year")[[y]])
         return
 
     base = alt.Chart(df)
-
-    # Put axis & domain on the line layer
     line = base.mark_line().encode(
         x=x_year_axis("Year"),
         y=alt.Y(f"{y}:Q", title=title),
@@ -134,7 +127,6 @@ def line_with_band(
     band = None
     if lo and hi and lo in df.columns and hi in df.columns:
         band = base.mark_area(opacity=0.18).encode(
-            # No axis here; share the line's scale/domain implicitly
             x=alt.X("pub_year:Q"),
             y=alt.Y(f"{lo}:Q"),
             y2=f"{hi}:Q",
@@ -145,30 +137,25 @@ def line_with_band(
                     use_container_width=True)
 
 def _clip_years(df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
-    """Clamp to year range and coerce year to numeric."""
     if df is None:
         return None
     if "pub_year" in df.columns:
         try:
             df["pub_year"] = pd.to_numeric(df["pub_year"], errors="coerce")
-            df = df[df["pub_year"].between(min_year, max_year)]
-            df = df.copy()
+            df = df[df["pub_year"].between(min_year, max_year)].copy()
         except Exception:
             pass
     return df
 
 def _drop_unknown(df: Optional[pd.DataFrame], cols: list[str]) -> Optional[pd.DataFrame]:
-    """Remove rows where any of the given columns equals 'Unknown' (case/space-insensitive). Index-aligned."""
     if df is None:
         return None
-
     mask = pd.Series(True, index=df.index)
     for c in cols:
         if c in df.columns:
             vals = df[c].astype(str).str.strip().str.lower()
             bad = vals.isin({"unknown", "nan", ""}) | df[c].isna()
             mask &= ~bad
-
     return df.loc[mask].copy()
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -180,9 +167,16 @@ DEFAULT_OPENALEX_DIR = Path("results-openalex")
 st.sidebar.header("Data sources")
 source = st.sidebar.radio("Corpus", ["PubMed", "OpenAlex"], index=0, horizontal=True, key="src")
 
-# Year filter (applied to most views) — defaults locked to 2010 / 2025
-min_year = int(st.sidebar.number_input("Min year", value=2010, step=1, key="ymin"))
-max_year = int(st.sidebar.number_input("Max year", value=2025, step=1, key="ymax"))
+# Hard clamp year inputs to 2010–2025 (cannot go outside)
+min_year = int(st.sidebar.number_input(
+    "Min year", value=2010, step=1, min_value=2010, max_value=2025, key="ymin"
+))
+max_year = int(st.sidebar.number_input(
+    "Max year", value=2025, step=1, min_value=2010, max_value=2025, key="ymax"
+))
+# Keep range sensible if user flips them
+if min_year > max_year:
+    min_year, max_year = max_year, min_year
 
 # Help / explainer toggle
 st.sidebar.header("Help")
@@ -238,29 +232,22 @@ base_dir = pubmed_dir if source == "PubMed" else openalex_dir
 available = list_csvs(base_dir)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Map of expected files → purposes (we try multiple fallbacks where helpful)
+# Map of expected files → purposes
 # ──────────────────────────────────────────────────────────────────────────────
 FILES = {
-    # Overview
     "std_any":   ["prevalence_year_core_standardized_from_clean_any.csv", "prevalence_year_core_standardized_from_clean.csv"],
     "std_title": ["prevalence_year_core_standardized_from_clean_title.csv"],
     "std_abs":   ["prevalence_year_core_standardized_from_clean_abstract.csv"],
     "raw_any":   ["prevalence_year_core_raw_from_clean_any.csv", "prevalence_year_core_raw_from_clean.csv"],
     "raw_title": ["prevalence_year_core_raw_from_clean_title.csv"],
     "raw_abs":   ["prevalence_year_core_raw_from_clean_abstract.csv"],
-
-    # Title vs Abstract
     "title_vs_abs": ["prevalence_title_vs_abstract_core_from_clean.csv"],
-
-    # Doc types
     "dt_title":       ["prevalence_year_title_core_by_doctype_from_clean.csv"],
     "dt_abs":         ["prevalence_year_abstract_core_by_doctype_from_clean.csv"],
     "dt_sizes_title": ["doctype_sizes_core_title_from_clean.csv"],
     "dt_sizes_abs":   ["doctype_sizes_core_abstract_from_clean.csv"],
     "dt_or_title":    ["doctype_trend_or_title_core_agg_from_clean.csv"],
     "dt_or_abs":      ["doctype_trend_or_abstract_core_agg_from_clean.csv"],
-
-    # Countries
     "cty_any":     ["prevalence_year_core_by_country_from_clean_union.csv", "prevalence_year_core_by_country_from_clean.csv"],
     "cty_title":   ["prevalence_year_core_by_country_from_clean_title.csv"],
     "cty_abs":     ["prevalence_year_core_by_country_from_clean_abstract.csv"],
@@ -268,16 +255,10 @@ FILES = {
     "cty_or_title":["country_trend_or_core_agg_from_clean_title.csv"],
     "cty_or_abs":  ["country_trend_or_core_agg_from_clean_abstract.csv"],
     "cty_sizes":   ["country_sizes_core_from_clean.csv"],
-
-    # Lexemes
     "lexemes": ["prevalence_year_core_lexemes_from_clean.csv"],
-
-    # Cell-6 metaphor share
     "mshare_year": ["metaphor_share_by_year_union.csv"],
     "mshare_dt":   ["metaphor_share_by_doctype_union.csv"],
     "mshare_cty":  ["metaphor_share_by_country_union.csv"],
-
-    # GLM coefficients
     "coef_any":   ["coef_core_glm_from_clean_any.csv", "coef_core_glm_from_clean.csv"],
     "coef_title": ["coef_core_glm_from_clean_title.csv"],
     "coef_abs":   ["coef_core_glm_from_clean_abstract.csv"],
@@ -328,7 +309,6 @@ with T_OVERVIEW:
     df_std = _clip_years(load_csv_optional(p_std) if p_std else None)
     df_raw = _clip_years(load_csv_optional(p_raw) if p_raw else None)
 
-    # KPI bar
     m1, m2, m3, m4 = st.columns(4)
     try:
         if df_raw is not None and {"pub_year","prevalence"}.issubset(df_raw.columns):
@@ -425,7 +405,6 @@ with T_DT:
         if df_sizes is not None and "doc_type" in df_sizes.columns:
             df_sizes = df_sizes.sort_values("n_docs", ascending=False)
             topk = st.slider("Show top K by total N", 3, 12, 6, key="dt_topk")
-            # Dynamically rebuild the multiselect when topK changes (key trick)
             default_list = df_sizes["doc_type"].head(topk).tolist()
             sel = st.multiselect(
                 "Doc types",
@@ -444,10 +423,7 @@ with T_DT:
 
             if _HAS_ALTAIR and {"prevalence", "prev_lo95", "prev_hi95"}.issubset(df_plot.columns):
                 base = alt.Chart(df_plot)
-
                 color_dt = alt.Color("doc_type:N", title="Doc type", scale=alt.Scale(range=DISTINCT_PALETTE))
-
-                # Line first (carries the axis & fixed integer ticks)
                 line = base.mark_line().encode(
                     x=x_year_axis("Year"),
                     y=alt.Y("prevalence:Q", title="Prevalence"),
@@ -459,7 +435,6 @@ with T_DT:
                     y2="prev_hi95:Q",
                     color=alt.Color("doc_type:N", scale=alt.Scale(range=DISTINCT_PALETTE), legend=None),
                 )
-
                 st.altair_chart((line + band).properties(height=360), use_container_width=True)
             else:
                 st.dataframe(df_plot)
@@ -557,7 +532,6 @@ with T_LEX:
     if df_lex is None:
         st.info("Lexeme-level CSV not found.")
     else:
-        # Choose slice from the CSV's `target` column (Title / Abstract / Any)
         if "target" in df_lex.columns:
             def _norm_target(x: object) -> str:
                 s = str(x).strip().lower().replace(" ", "").replace("-", "").replace("_", "")
@@ -568,7 +542,6 @@ with T_LEX:
                 if s in {"abstract", "abstracts", "abs"}:
                     return "abstract"
                 return s
-
             df_lex["_slice"] = df_lex["target"].map(_norm_target)
 
             present = [s for s in ["any", "title", "abstract"] if (df_lex["_slice"] == s).any()]
@@ -585,7 +558,6 @@ with T_LEX:
 
             df_lex = df_lex[df_lex["_slice"] == chosen].copy()
 
-        # Ensure a single row per (year, lexeme) for smooth lines
         if df_lex.duplicated(["pub_year", "lexeme"]).any():
             before = len(df_lex)
             df_lex = (
@@ -596,7 +568,6 @@ with T_LEX:
             after = len(df_lex)
             st.caption(f"Collapsed duplicate rows per (year, lexeme): {before} → {after}")
 
-        # Plot
         lex_list = sorted(df_lex.get("lexeme", pd.Series(dtype=str)).dropna().unique().tolist())
         default_lex = lex_list[:6]
         sel_lex = st.multiselect("Lexemes", lex_list, default=default_lex, key="lex_sel")
@@ -631,29 +602,18 @@ with T_MS:
 
     colA, colB = st.columns([1, 1])
 
-    # --- By year ---
     with colA:
         p_ms_y = resolve_file("mshare_year")
         df_ms_y = _clip_years(load_csv_optional(p_ms_y) if p_ms_y else None)
         if df_ms_y is not None and {"pub_year", "share_metaphor", "lo95", "hi95"}.issubset(df_ms_y.columns):
             st.markdown("**By year**")
-            line_with_band(
-                df_ms_y,
-                y="share_metaphor",
-                lo="lo95",
-                hi="hi95",
-                title="Metaphor share"
-            )
+            line_with_band(df_ms_y, y="share_metaphor", lo="lo95", hi="hi95", title="Metaphor share")
         else:
             st.info("metaphor_share_by_year_union.csv not found or missing cols.")
 
-    # --- Doc types ---
     with colB:
         p_ms_dt = resolve_file("mshare_dt")
-        df_ms_dt = _drop_unknown(
-            _clip_years(load_csv_optional(p_ms_dt) if p_ms_dt else None),
-            ["doc_type"]
-        )
+        df_ms_dt = _drop_unknown(_clip_years(load_csv_optional(p_ms_dt) if p_ms_dt else None), ["doc_type"])
         if df_ms_dt is not None and {"pub_year", "doc_type", "share_metaphor"}.issubset(df_ms_dt.columns):
             st.markdown("**By doc type**")
             top_dt = (
@@ -681,13 +641,9 @@ with T_MS:
         else:
             st.info("metaphor_share_by_doctype_union.csv not found or missing cols.")
 
-    # --- By country ---
     st.markdown("**By country**")
     p_ms_cty = resolve_file("mshare_cty")
-    df_ms_cty = _drop_unknown(
-        _clip_years(load_csv_optional(p_ms_cty) if p_ms_cty else None),
-        ["country"]
-    )
+    df_ms_cty = _drop_unknown(_clip_years(load_csv_optional(p_ms_cty) if p_ms_cty else None), ["country"])
     if df_ms_cty is not None and {"country", "share_metaphor"}.issubset(df_ms_cty.columns):
         if _HAS_ALTAIR:
             top_cty = (
