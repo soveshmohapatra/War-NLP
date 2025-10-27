@@ -1,7 +1,7 @@
 # streamlit run war-nlp-dashboard-app.py
 # ──────────────────────────────────────────────────────────────────────────────
 # WAR-NLP: “Is Science at War?” — Presentation Dashboard (Streamlit)
-# Author: Sovesh + ChatGPT
+# Author: Sovesh
 #
 # Drop your CSVs into two folders (or point to wherever they live):
 #   results-pubmed/    → PubMed outputs
