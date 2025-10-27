@@ -184,6 +184,14 @@ st.sidebar.header("Appearance")
 accent_name = st.sidebar.selectbox("Accent color", ["Indigo","Teal","Crimson","Amber","Slate"], index=0, key="accent")
 talk_mode = st.sidebar.checkbox("Talk mode (bigger fonts)", value=False, key="talk")
 
+# Help / explainer toggle
+st.sidebar.header("Help")
+SHOW_EXPLAINERS = st.sidebar.checkbox(
+    "Show overview text",
+    value=True,
+    help="Adds a short explainer at the top of every tab."
+)
+
 ACCENTS = {
     "indigo": "#6366F1",
     "teal": "#14B8A6",
@@ -312,6 +320,17 @@ T_OVERVIEW, T_TVA, T_DT, T_CTY, T_LEX, T_MS, T_GLM, T_DL = st.tabs(
 # ──────────────────────────────────────────────────────────────────────────────
 with T_OVERVIEW:
     st.subheader("Global prevalence over time")
+    if SHOW_EXPLAINERS:
+        st.info(
+            "**What this shows.** The share of papers each year that contain any term "
+            "from the core ‘war’ lexeme list.\n\n"
+            "**Two versions.** *Raw prevalence* is the observed share in your data. "
+            "*Length-standardized prevalence* estimates the share if every document had L* words, "
+            "so trends aren’t driven by changing abstract lengths.\n\n"
+            "**How to read.** An upward line = more frequent mentions. Shaded bands are 95% CIs (if provided). "
+            "Use the year filter in the sidebar to focus the time window."
+        )
+
     view = st.radio("Slice", ["Any (union)", "Title", "Abstract"], horizontal=True, key="ov_slice")
 
     if view == "Any (union)":
@@ -369,6 +388,13 @@ with T_OVERVIEW:
 # ──────────────────────────────────────────────────────────────────────────────
 with T_TVA:
     st.subheader("Where do war-terms show up — titles or abstracts?")
+    if SHOW_EXPLAINERS:
+        st.info(
+            "**What this shows.** A direct comparison of where war-terms appear: in paper titles vs. in abstracts.\n\n"
+            "**Why it matters.** Title mentions often signal framing or emphasis; abstract mentions reflect fuller discussion. "
+            "Divergence between the lines can indicate shifts in how prominently the topic is presented."
+        )
+
     p_tva = resolve_file("title_vs_abs")
     df_tva = _clip_years(load_csv_optional(p_tva) if p_tva else None)
     if df_tva is None:
@@ -391,6 +417,14 @@ with T_TVA:
 # ──────────────────────────────────────────────────────────────────────────────
 with T_DT:
     st.subheader("Document types")
+    if SHOW_EXPLAINERS:
+        st.info(
+            "**What this shows.** Prevalence by publication type (e.g., Article, Review, Editorial). "
+            "The shaded band is a 95% confidence interval (if available).\n\n"
+            "**How to use.** Pick the slice (Title/Abstract), choose the top-K types on the left, "
+            "and select which types to plot. The table below shows aggregated GLM odds-ratio trends per year."
+        )
+
     left, right = st.columns([1, 1])
 
     with left:
@@ -459,6 +493,13 @@ with T_DT:
 # ──────────────────────────────────────────────────────────────────────────────
 with T_CTY:
     st.subheader("Countries")
+    if SHOW_EXPLAINERS:
+        st.info(
+            "**What this shows.** Prevalence by country (based on author affiliation; often the primary/first affiliation). "
+            "Lines are annual prevalence; shaded bands show 95% CIs when available.\n\n"
+            "**Notes.** Country assignment depends on your preprocessing. Use the multiselect to compare countries with enough data."
+        )
+
     c_slice = st.radio("Slice", ["Any (union)", "Title", "Abstract"], horizontal=True, key="cty_slice")
 
     if c_slice == "Any (union)":
@@ -515,6 +556,14 @@ with T_CTY:
 # ──────────────────────────────────────────────────────────────────────────────
 with T_LEX:
     st.subheader("Lexemes (CORE set) over time")
+    if SHOW_EXPLAINERS:
+        st.info(
+            "**What this shows.** Trends for individual words/phrases in the core ‘war’ set. "
+            "Each line is one lexeme.\n\n"
+            "**Tips.** Use *Slice* to choose Title/Abstract/Any. Select lexemes to compare. "
+            "If multiple rows existed per (year, lexeme), they were averaged for smooth lines."
+        )
+
     p_lex = resolve_file("lexemes")
     df_lex = _clip_years(load_csv_optional(p_lex) if p_lex else None)
 
@@ -585,6 +634,14 @@ with T_LEX:
 # ──────────────────────────────────────────────────────────────────────────────
 with T_MS:
     st.subheader("Contextual metaphor share (KWIC→LLM)")
+    if SHOW_EXPLAINERS:
+        st.info(
+            "**What this shows.** Among texts that contain a war-term, the *metaphor share* is the fraction "
+            "of usages judged metaphorical by an LLM reading KWIC snippets.\n\n"
+            "**Panels.** Left: change by year. Right: breakdown by document type. Below: breakdown by country.\n\n"
+            "**Notes.** Shares come from sampled hits (n_metaphor / n_hits); wider CIs imply fewer samples."
+        )
+
     colA, colB = st.columns([1, 1])
 
     # --- By year ---
@@ -675,6 +732,14 @@ with T_MS:
 # ──────────────────────────────────────────────────────────────────────────────
 with T_GLM:
     st.subheader("Aggregated GLM coefficients (Cell-3)")
+    if SHOW_EXPLAINERS:
+        st.info(
+            "**What this shows.** Coefficients from a logistic GLM where the outcome is whether a document contains a war-term. "
+            "`beta` is a log-odds coefficient; `OR = exp(beta)` is the multiplicative change in odds.\n\n"
+            "**How to read.** OR > 1 indicates higher odds; OR < 1 lower odds. "
+            "The year term (if present) reflects per-year change after controls (per your model spec)."
+        )
+
     which = st.radio("Slice", ["Any (union)", "Title", "Abstract"], horizontal=True, key="glm_slice")
     if which == "Any (union)":
         p_coef = resolve_file("coef_any")
@@ -705,6 +770,12 @@ with T_GLM:
 # ──────────────────────────────────────────────────────────────────────────────
 with T_DL:
     st.subheader("Quick downloads")
+    if SHOW_EXPLAINERS:
+        st.info(
+            "Download the exact CSVs this app is reading from the selected data directory. "
+            "Use these for replication, external plotting, or sharing."
+        )
+
     files_here = list_csvs(base_dir)
     if not files_here:
         st.info("No CSVs found in this directory.")
