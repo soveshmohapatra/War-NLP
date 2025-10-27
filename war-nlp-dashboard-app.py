@@ -731,7 +731,7 @@ with T_MS:
 # GLM COEFFICIENTS (Cell-3)
 # ──────────────────────────────────────────────────────────────────────────────
 with T_GLM:
-    st.subheader("Aggregated GLM coefficients (Cell-3)")
+    st.subheader("Aggregated GLM coefficients")
     if SHOW_EXPLAINERS:
         st.info(
             "**What this shows.** Coefficients from a logistic GLM where the outcome is whether a document contains a war-term. "
