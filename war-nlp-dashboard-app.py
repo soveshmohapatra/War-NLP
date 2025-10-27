@@ -40,7 +40,7 @@ if _HAS_ALTAIR:
 st.set_page_config(
     page_title="Is Science at War?",
     layout="wide",
-    page_icon="🧠",
+    page_icon="",
 )
 
 st.markdown(
