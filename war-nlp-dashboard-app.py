@@ -40,7 +40,7 @@ if _HAS_ALTAIR:
 st.set_page_config(
     page_title="Is Science at War?",
     layout="wide",
-    page_icon="",
+    page_icon="🧠",
 )
 
 st.markdown(
@@ -111,6 +111,7 @@ def line_with_band(
 
     base = alt.Chart(df)
 
+    # Put axis on line layer
     line = base.mark_line().encode(
         x=x_year_axis("Year"),
         y=alt.Y(f"{y}:Q", title=title),
@@ -120,7 +121,7 @@ def line_with_band(
     band = None
     if lo and hi and lo in df.columns and hi in df.columns:
         band = base.mark_area(opacity=0.18).encode(
-            # IMPORTANT: do not specify an axis on the band layer
+            # IMPORTANT: no axis here; the axis is on the line
             x=alt.X("pub_year:Q"),
             y=alt.Y(f"{lo}:Q"),
             y2=f"{hi}:Q",
@@ -138,19 +139,24 @@ def _clip_years(df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
         try:
             df["pub_year"] = pd.to_numeric(df["pub_year"], errors="coerce")
             df = df[df["pub_year"].between(min_year, max_year)]
+            df = df.copy()
         except Exception:
             pass
     return df
 
 def _drop_unknown(df: Optional[pd.DataFrame], cols: list[str]) -> Optional[pd.DataFrame]:
-    """Remove rows where any of the given columns equals 'Unknown' (case/space-insensitive)."""
+    """Remove rows where any of the given columns equals 'Unknown' (case/space-insensitive). Index-aligned."""
     if df is None:
         return None
-    mask = pd.Series([True] * len(df))
+
+    mask = pd.Series(True, index=df.index)
     for c in cols:
         if c in df.columns:
-            mask &= ~df[c].astype(str).str.strip().str.lower().eq("unknown")
-    return df[mask]
+            vals = df[c].astype(str).str.strip().str.lower()
+            bad = vals.isin({"unknown", "nan", ""}) | df[c].isna()
+            mask &= ~bad
+
+    return df.loc[mask].copy()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Sidebar — choose source + directories + quick filters
@@ -407,6 +413,7 @@ with T_DT:
 
                 color_dt = alt.Color("doc_type:N", title="Doc type", scale=alt.Scale(range=DISTINCT_PALETTE))
 
+                # Line first (carries the axis)
                 line = base.mark_line().encode(
                     x=x_year_axis("Year"),
                     y=alt.Y("prevalence:Q", title="Prevalence"),
@@ -494,14 +501,14 @@ with T_CTY:
 # LEXEMES
 # ──────────────────────────────────────────────────────────────────────────────
 with T_LEX:
-    st.subheader("Lexemes (CORE set) over time)")
+    st.subheader("Lexemes (CORE set) over time")
     p_lex = resolve_file("lexemes")
     df_lex = _clip_years(load_csv_optional(p_lex) if p_lex else None)
 
     if df_lex is None:
         st.info("Lexeme-level CSV not found.")
     else:
-        # ---- choose slice from the CSV's `target` column (Title / Abstract / Any) ----
+        # Choose slice from the CSV's `target` column (Title / Abstract / Any)
         if "target" in df_lex.columns:
             def _norm_target(x: object) -> str:
                 s = str(x).strip().lower().replace(" ", "").replace("-", "").replace("_", "")
@@ -529,7 +536,7 @@ with T_LEX:
 
             df_lex = df_lex[df_lex["_slice"] == chosen].copy()
 
-        # ---- ensure a single row per (year, lexeme) for smooth lines ----
+        # Ensure a single row per (year, lexeme) for smooth lines
         if df_lex.duplicated(["pub_year", "lexeme"]).any():
             before = len(df_lex)
             df_lex = (
@@ -540,7 +547,7 @@ with T_LEX:
             after = len(df_lex)
             st.caption(f"Collapsed duplicate rows per (year, lexeme): {before} → {after}")
 
-        # ---- plot ----
+        # Plot
         lex_list = sorted(df_lex.get("lexeme", pd.Series(dtype=str)).dropna().unique().tolist())
         default_lex = lex_list[:6]
         sel_lex = st.multiselect("Lexemes", lex_list, default=default_lex, key="lex_sel")
@@ -573,7 +580,6 @@ with T_MS:
         df_ms_y = _clip_years(load_csv_optional(p_ms_y) if p_ms_y else None)
         if df_ms_y is not None and {"pub_year", "share_metaphor", "lo95", "hi95"}.issubset(df_ms_y.columns):
             st.markdown("**By year**")
-            # Uses line_with_band which draws the x-axis on the line layer
             line_with_band(
                 df_ms_y,
                 y="share_metaphor",
@@ -709,4 +715,3 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
